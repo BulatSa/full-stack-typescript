@@ -1,18 +1,5 @@
-import { z } from 'zod';
+import { TaskListSchema } from 'busy-bee-schema';
 import { PartialTask, Task } from './types';
-
-type TaskList = z.infer<typeof TaskListSchema>
-
-const TaskSchema = z.object({
-  id: z.coerce.number(),
-  title: z.string(),
-  description: z.string().optional(),
-  completed: z.coerce.boolean().default(false),
-});
-
-export const CreateTaskSchema = TaskSchema.omit({ id: true });
-export const UpdateTaskSchema = TaskSchema.partial().omit({ id: true });
-export const TaskListSchema = z.array(TaskSchema);
 
 const API_URL = 'http://localhost:4001';
 
