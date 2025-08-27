@@ -1,13 +1,27 @@
 import bodyParser from 'body-parser';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import getPort from 'get-port';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
 
 export const app = express();
 const port = await getPort({ port: 3000 });
 
 app.use(bodyParser.json());
+
+const UserSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  email: z.string().email(),
+}) satisfies z.ZodType<User>;
+
+const UserIdSchema = UserSchema.pick({ id: true });
+
+const CreateUserSchema = UserSchema.omit({ id: true });
+const PartialUserSchema = UserSchema.partial().omit({ id: true });
+
+const UserListSchema = z.array(UserSchema);
 
 interface User {
   id: string;
@@ -18,14 +32,14 @@ interface User {
 const users: User[] = [];
 
 // Create a new user
-app.post('/users', (req, res) => {
-  const { name, email } = req.body;
+app.post('/users', (req: Request, res: Response) => {
+  const { name, email } = CreateUserSchema.parse(req.body);
 
   if (!name || !email) {
     return res.status(400).json({ message: 'Name and email are required' });
   }
 
-  const newUser: User = { id: uuidv4(), name, email };
+  const newUser: User = UserSchema.parse({ id: uuidv4(), name, email });
 
   users.push(newUser);
 
@@ -33,20 +47,20 @@ app.post('/users', (req, res) => {
 });
 
 // Read all users
-app.get('/users', (req, res) => {
-  const { name, email } = req.query;
+app.get('/users', (req: Request, res: Response) => {
+  const { name, email } = PartialUserSchema.parse(req.query);
 
   let filteredUsers = users;
 
   if (name) {
     filteredUsers = filteredUsers.filter((user) =>
-      user.name.toLowerCase().includes((name as string).toLowerCase()),
+      user.name.toLowerCase().includes(name.toLowerCase()),
     );
   }
 
   if (email) {
     filteredUsers = filteredUsers.filter((user) =>
-      user.email.toLowerCase().includes((email as string).toLowerCase()),
+      user.email.toLowerCase().includes(email.toLowerCase()),
     );
   }
 
@@ -55,7 +69,7 @@ app.get('/users', (req, res) => {
 
 // Read a single user by ID
 app.get('/users/:id', (req, res) => {
-  const { id } = req.params;
+  const { id } = UserIdSchema.parse(req.params);
 
   const user = users.find((u) => u.id === id);
 
@@ -76,7 +90,7 @@ app.put('/users/:id', (req, res) => {
     return res.status(404).json({ message: 'User not found' });
   }
 
-  const { name, email } = req.body;
+  const { name, email } = PartialUserSchema.parse(req.body);
 
   if (name) user.name = name;
   if (email) user.email = email;
@@ -86,7 +100,7 @@ app.put('/users/:id', (req, res) => {
 
 // Delete a user by ID
 app.delete('/users/:id', (req, res) => {
-  const id = req.params.id;
+  const { id } = UserIdSchema.parse(req.params);
 
   const index = users.findIndex((u) => u.id === id);
 
