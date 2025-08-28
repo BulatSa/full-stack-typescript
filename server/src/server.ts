@@ -1,8 +1,9 @@
 import cors from 'cors';
-import express, { type Response, type Request } from 'express';
+import express, { type Response, type Request, RequestHandler } from 'express';
 import type { Database } from 'sqlite';
 import { handleError } from './handle-error.js';
 import { CreateTaskSchema, TaskSchema, UpdateTaskSchema } from 'busy-bee-schema';
+import { ZodSchema } from 'zod';
 
 export async function createServer(database: Database) {
   const app = express();
@@ -18,20 +19,59 @@ export async function createServer(database: Database) {
     `UPDATE tasks SET title = ?, description = ?, completed = ? WHERE id = ?`,
   );
 
-  app.get('/tasks', async (req: Request, res: Response) => {
-    const { completed } = req.query;
-    const query = completed === 'true' ? completedTasks : incompleteTasks;
+  const validateParams =
+    <T>(schema: ZodSchema<T>): RequestHandler<T> =>
+    (req, res, next) => {
+      try {
+        schema.parse(req.body);
+        next();
+      } catch (error) {
+        return handleError(req, res, error);
+      }
+    };
 
-    try {
-      const tasks = await query.all();
-      return res.json(tasks);
-    } catch (error) {
-      return handleError(req, res, error);
-    }
-  });
+  type Query = Request['query'];
+
+  const validateQuery =
+    <T>(schema: ZodSchema<T>): RequestHandler<NonNullable<unknown>, unknown, unknown, Query & T> =>
+    (req, res, next) => {
+      try {
+        schema.parse(req.body);
+        next();
+      } catch (error) {
+        return handleError(req, res, error);
+      }
+    };
+
+  const validateBody =
+    <T>(schema: ZodSchema<T>): RequestHandler<NonNullable<unknown>, unknown, T> =>
+    (req, res, next) => {
+      try {
+        schema.parse(req.body);
+        next();
+      } catch (error) {
+        return handleError(req, res, error);
+      }
+    };
+
+  app.get(
+    '/tasks',
+    validateQuery(TaskSchema.pick({ completed: true })),
+    async (req: Request, res: Response) => {
+      const { completed } = req.query;
+      const query = completed === 'true' ? completedTasks : incompleteTasks;
+
+      try {
+        const tasks = await query.all();
+        return res.json(tasks);
+      } catch (error) {
+        return handleError(req, res, error);
+      }
+    },
+  );
 
   // Get a specific task
-  app.get('/tasks/:id', async (req, res) => {
+  app.get('/tasks/:id', validateParams(TaskSchema.pick({ id: true })), async (req, res) => {
     try {
       const { id } = req.params;
       const task = await getTask.get([id]);
@@ -44,9 +84,9 @@ export async function createServer(database: Database) {
     }
   });
 
-  app.post('/tasks', async (req, res) => {
+  app.post('/tasks', validateBody(CreateTaskSchema), async (req, res) => {
     try {
-      const task = CreateTaskSchema.parse(req.body);
+      const task = req.body;
       if (!task.title) return res.status(400).json({ message: 'Title is required' });
 
       await createTask.run([task.title, task.description]);
