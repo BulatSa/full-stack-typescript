@@ -4,14 +4,15 @@ import type { Database } from 'sqlite';
 import { handleError } from './handle-error.js';
 import { CreateTaskSchema, TaskSchema, UpdateTaskSchema } from 'busy-bee-schema';
 import { ZodSchema } from 'zod';
+import { TaskClient } from './clent.js';
+import { createTrpcAdapter } from './trpc/trpc-adapter.js';
 
 export async function createServer(database: Database) {
   const app = express();
   app.use(cors());
   app.use(express.json());
+  app.use('/api', createTrpcAdapter());
 
-  const incompleteTasks = await database.prepare('SELECT * FROM tasks whERE completed = 0');
-  const completedTasks = await database.prepare('SELECT * FROM tasks WHERE completed = 1');
   const getTask = await database.prepare('SELECT * FROM tasks WHERE id = ?');
   const createTask = await database.prepare('INSERT INTO tasks (title, description) VALUES (?, ?)');
   const deleteTask = await database.prepare('DELETE FROM tasks WHERE id = ?');
@@ -31,6 +32,8 @@ export async function createServer(database: Database) {
     };
 
   type Query = Request['query'];
+
+  const client = new TaskClient(database);
 
   const validateQuery =
     <T>(schema: ZodSchema<T>): RequestHandler<NonNullable<unknown>, unknown, unknown, Query & T> =>
@@ -59,10 +62,9 @@ export async function createServer(database: Database) {
     validateQuery(TaskSchema.pick({ completed: true })),
     async (req: Request, res: Response) => {
       const { completed } = req.query;
-      const query = completed === 'true' ? completedTasks : incompleteTasks;
 
       try {
-        const tasks = await query.all();
+        const tasks = client.getAllTasks({completed: completed === 'true'});
         return res.json(tasks);
       } catch (error) {
         return handleError(req, res, error);
